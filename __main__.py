@@ -11,7 +11,7 @@ class MarkdownParser:
             'italic': re.compile(r'\*(.+?)\*'),
             'link': re.compile(r'\[(.+?)\]\((.+?)\)'),
             'image': re.compile(r'\!\[(.+?)\]\((.+?)\)'),
-            'code_block': re.compile(r'```(.*?)\n(.*?)```', re.DOTALL),
+            'code_block': re.compile(r'```(]w*)\n(.*?)```', re.DOTALL),
             'inline_code': re.compile(r'`(.*?)`'),
             'unordered_list': re.compile(r'^(\s*)[-*]\s(.+)$'),
             'ordered_list': re.compile(r'^(\s*)(\d+)\.\s(.+)$'),
@@ -64,10 +64,10 @@ class MarkdownParser:
             r'<strong>\1</strong>', text)  # parse bold
         text = self.patterns['italic'].sub(
             r'<em>\1</em>', text)  # parse italic
+        text = self.patterns['image'].sub(
+            r'<img src="\2" alt="\1" />', text)  # parse image
         text = self.patterns['link'].sub(
             r'<a href="\2">\1</a>', text)  # parse link
-        text = self.patterns['image'].sub(
-            r'<img src="\2" alt="\1">\1</img>', text)  # parse image
         text = self.patterns['inline_code'].sub(
             r'<code>\1</code>', text)  # parse inline code
         return text
@@ -78,43 +78,121 @@ class MarkdownParser:
         in_code_blocks = False
         code_content = []
 
-        for line in text.split("\n"):
+        lines = text.split("\n")
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+
+            # Handle code blocks
             if line.startswith('```'):
+                # Close any open lists before starting a code block
+                if self.current_list_stack:
+                    if current_block:
+                        content = ' '.join(current_block)
+                        blocks.append(content)
+                        current_block = []
+
+                    closing_tags = []
+                    while self.current_list_stack:
+                        list_type = 'ol' if self.current_list_stack[-1][1] else 'ul'
+                        closing_tags.append(f'</{list_type}>')
+                        self.current_list_stack.pop()
+                    blocks.append('\n'.join(closing_tags))
+
                 if not in_code_blocks:
+                    if current_block:
+                        content = ' '.join(current_block)
+                        if not content.startswith(('<h', '<ol', '<ul')):
+                            content = f'<p>{content}</p>'
+                        blocks.append(content)
+                        current_block = []
+
                     in_code_blocks = True
                     language = line[3:].strip()
+                    i += 1
+                    continue
                 else:
                     blocks.append(
-                        f'<pre><code class="language-{language}">\n'
-                        f'{"\n".join(code_content)}\n</code></pre>'
+                        f'<pre>\n  <code class="language-{language}">\n    '
+                        f'{"\n    ".join(code_content)}\n  </code>\n</pre>'
                     )
                     code_content = []
                     in_code_blocks = False
-                continue
+                    i += 1
+                    continue
 
             if in_code_blocks:
                 code_content.append(line)
+                i += 1
                 continue
 
+            next_line_is_list = False
+            if i + 1 < len(lines):
+                next_line = lines[i + 1]
+                next_line_is_list = bool(self.patterns['unordered_list'].match(next_line) or
+                                         self.patterns['ordered_list'].match(next_line))
+
+            # Handle regular content
             if line.strip() == '':
                 if current_block:
                     content = ' '.join(current_block)
-                    if not content.startswith('<h') and not content.startswith('<ol') and not content.startswith('<ul'):
+                    if not content.startswith(('<h', '<ol', '<ul')):
                         content = f'<p>{content}</p>'
                     blocks.append(content)
                     current_block = []
+
+                    # Close lists if next line is not a list
+                    if self.current_list_stack and not next_line_is_list:
+                        closing_tags = []
+                        while self.current_list_stack:
+                            list_type = 'ol' if self.current_list_stack[-1][1] else 'ul'
+                            closing_tags.append(f'</{list_type}>')
+                            self.current_list_stack.pop()
+                        blocks.append('\n'.join(closing_tags))
             else:
                 parsed_line = self.parse_line(line)
                 if parsed_line:
+                    if parsed_line.startswith(('<ol', '<ul')) and current_block:
+                        # Flush current block before starting a list
+                        content = ' '.join(current_block)
+                        if not content.startswith(('<h', '<ol', '<ul')):
+                            content = f'<p>{content}</p>'
+                        blocks.append(content)
+                        current_block = []
                     current_block.append(parsed_line)
+            i += 1
 
+        # Handle any remaining content
         if current_block:
             content = ' '.join(current_block)
-            if not content.startswith('<h') and not content.startswith('<ol') and not content.startswith('<ul'):
+            if not content.startswith(('<h', '<ol', '<ul')):
                 content = f'<p>{content}</p>'
             blocks.append(content)
 
-        return '\n'.join(blocks)
+        # Close any remaining open lists
+        if self.current_list_stack:
+            closing_tags = []
+            while self.current_list_stack:
+                list_type = 'ol' if self.current_list_stack[-1][1] else 'ul'
+                closing_tags.append(f'</{list_type}>')
+                self.current_list_stack.pop()
+            blocks.append('\n'.join(closing_tags))
+
+        # Format the final HTML with proper indentation
+        formatted_blocks = []
+        for block in blocks:
+            lines = block.split('\n')
+            formatted_lines = []
+            for line in lines:
+                if line.startswith(('</ol>', '</ul>')):
+                    formatted_lines.append('  ' + line)
+                elif line.startswith(('<li', '</li>')):
+                    formatted_lines.append('    ' + line)
+                else:
+                    formatted_lines.append('  ' + line)
+            formatted_blocks.append('\n'.join(formatted_lines))
+
+        return '\n'.join(formatted_blocks)
 
     def convert_file(self, input_path: str, output_path: str):
         try:

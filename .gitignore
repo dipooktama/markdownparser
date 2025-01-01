@@ -11,5 +11,5 @@ wheels/
 .venv
 
 # testing stuffs
-./testmd/*
-./result.html
+testmd/
+result.html
