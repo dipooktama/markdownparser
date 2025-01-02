@@ -1,6 +1,8 @@
 import re
 import sys
+import argparse
 from pathlib import Path
+from typing import Optional
 
 
 class MarkdownParser:
@@ -194,46 +196,81 @@ class MarkdownParser:
 
         return '\n'.join(formatted_blocks)
 
-    def convert_file(self, input_path: str, output_path: str):
+    def convert_file(self, input_path: str, output_path: str, template_path: Optional[str] = None) -> bool:
         try:
             with open(input_path, 'r', encoding='utf-8') as f:
                 markdown_content = f.read()
 
             html_content = self.parse_blocks(markdown_content)
-
-            # html template
-            html_doc = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{Path(input_path).stem}</title>
-    <link rel="stylesheet" href="./styles/style.css" />
-</head>
-<body>
-    {html_content}
-</body>
-</html>"""
+            if template_path:
+                final_html = self.apply_template(
+                    template_path=template_path,
+                    title=Path(input_path).stem,
+                    content=html_content
+                )
+            else:
+                final_html = self.create_default_html(
+                    title=Path(input_path).stem,
+                    content=html_content
+                )
 
             with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(html_doc)
+                f.write(final_html)
             return True
 
         except Exception as e:
             print(f'Error: {str(e)}')
             return False
 
+    def apply_template(self, template_path: str, title: str, content: str) -> str:
+        try:
+            template = Path(template_path).read_text(encoding='utf-8')
+            template = template.replace('{{title}}', title)
+
+            if '{{content}}' not in template:
+                raise ValueError(
+                    'Template must contain {{content}} mark in the body')
+
+            return template.replace('{{content}}', content)
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f'Template file not found: {template_path}')
+        except Exception as e:
+            raise Exception(f'Error applying template: {str(e)}')
+
+    @staticmethod
+    def create_default_html(title: str, content: str) -> str:
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <link rel="stylesheet" href="./styles/style.css" />
+</head>
+<body>
+    {content}
+</body>
+</html>"""
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="convert markdown to html")
+    parser.add_argument('input', help='input markdown file')
+    parser.add_argument('output', help='output html file',
+                        default='result.html')
+    parser.add_argument('--template', help='html template file', default=None)
+    return parser.parse_args()
+
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) < 1:
         print("Usage: ./markdownparser <input_file> <output_file>")
         sys.exit(1)
 
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
-
+    args = parse_arguments()
     parser = MarkdownParser()
-    success = parser.convert_file(input_file, output_file)
+    success = parser.convert_file(args.input, args.output, args.template)
     print("Converted!" if success else "Failed to convert")
 
 
