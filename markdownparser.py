@@ -50,11 +50,10 @@ class MarkdownParser:
         header_match = self.patterns['header'].match(line)
         if header_match:
             level = len(header_match.group(1))
-            headersize = 'text-xl' if level == 6 else f'text-{
-                6 - level + 1}xl'
+            headersize = 'text-6xl' if level == 1 else 'text-4xl' if level == 2 else 'text-2xl'
             headercolor = 'text-red-900'
             headerstyle = f'{headersize} {
-                headercolor} mb-10 font-black uppercase'
+                headercolor} mb-5 font-black uppercase'
             return f'<h{level} class="{headerstyle}">{self.parse_inline(header_match.group(2))}</h{level}>'
 
         ul_match = self.patterns['unordered_list'].match(line)
@@ -103,7 +102,7 @@ class MarkdownParser:
         text = self.patterns['link'].sub(
             r'<a href="\2" class="underline">\1</a>', text)  # parse link
         text = self.patterns['inline_code'].sub(
-            r'<code>\1</code>', text)  # parse inline code
+            r'<code class="bg-slate-300">\1</code>', text)  # parse inline code
         return text
 
     def parse_blocks(self, text: str) -> Tuple[Dict[str, str], str]:
